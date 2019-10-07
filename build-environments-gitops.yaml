@@ -1,0 +1,97 @@
+# slack-notification-defaults: &SLACK_NOTIFICATION_DEFAULTS
+#   channel: '#cloud-platform-notify'
+#   silent: true
+# slack-attachments-defaults: &SLACK_ATTACHMENTS_DEFAULTS
+#   fallback: 'Finished building $BUILD_TEAM_NAME/$BUILD_PIPELINE_NAME/$BUILD_JOB_NAME#$BUILD_NAME'
+#   title: '$BUILD_TEAM_NAME/$BUILD_PIPELINE_NAME/$BUILD_JOB_NAME#$BUILD_NAME'
+#   title_link: 'https://concourse.cloud-platform.service.justice.gov.uk/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME'
+#   footer: concourse.cloud-platform.service.justice.gov.uk
+
+resources:
+- name: vijay-veeranki-helloworld-repo
+  type: git
+  source:
+    uri: https://github.com/vijay-veeranki-moj/helloworld.git
+    branch: master
+    # git_crypt_key: ((cloud-platform-environments-git-crypt.key))
+- name: tools-image
+  type: docker-image
+  source:
+    repository: ministryofjustice/cloud-platform-tools
+    tag: 1.1
+# - name: slack-alert
+#   type: slack-notification
+#   source:
+#     url: https://hooks.slack.com/services/((slack-hook-id))
+- name: every-30m
+  type: time
+  source:
+    interval: 30m
+
+resource_types:
+# - name: slack-notification
+#   type: docker-image
+#   source:
+#     repository: cfcommunity/slack-notification-resource
+#     tag: latest
+
+groups:
+# - name: live-0
+#   jobs: [apply-live-0]
+- name: gitops
+  jobs: [apply-gitops]
+
+jobs:
+  - name: apply-gitops
+    serial: true
+    plan:
+      - aggregate:
+        - get: every-30m
+          trigger: true
+        - get: vijay-veeranki-helloworld-repo
+          trigger: true
+        - get: tools-image
+      - task: apply-environments
+        image: tools-image
+        config:
+          platform: linux
+          inputs:
+            - name: vijay-veeranki-helloworld-repo
+          params:
+            AWS_ACCESS_KEY_ID: ((aws-live-1.access-key-id))
+            AWS_SECRET_ACCESS_KEY: ((aws-live-1.secret-access-key))
+            KUBECONFIG_AWS_ACCESS_KEY_ID: ((aws-live-1.access-key-id))
+            KUBECONFIG_AWS_SECRET_ACCESS_KEY: ((aws-live-1.secret-access-key))
+            KUBECONFIG: /tmp/kubeconfig
+            TF_PLUGIN_CACHE_DIR: /tmp/terraform-plugin-cache
+            PIPELINE_CLUSTER: pk-test-9.cloud-platform.service.justice.gov.uk
+            PIPELINE_STATE_BUCKET: cloud-platform-terraform-state
+            PIPELINE_STATE_KEY_PREFIX: "vijay-veeranki-moj/"
+            PIPELINE_STATE_REGION: "eu-west-1"
+            PIPELINE_CLUSTER_STATE_BUCKET: cloud-platform-terraform-state
+            PIPELINE_CLUSTER_STATE_KEY_PREFIX: "cloud-platform/"
+            CONCOURSE_FLY_VERSION: 5.5.0
+            CONCOURSE_URL: 'http://concourse-web.concourse.svc.cluster.local:8080'
+            CONCOURSE_TEAM: main
+            CONCOURSE_CLUSTER: live-1
+            CONCOURSE_BASIC_AUTH_USERNAME: ((concourse-basic-auth.username))
+            CONCOURSE_BASIC_AUTH_PASSWORD: ((concourse-basic-auth.password))
+          run:
+            path: /bin/sh
+            dir: vijay-veeranki-helloworld-repo
+            args:
+              - -c
+              - |
+                mkdir -p "${TF_PLUGIN_CACHE_DIR}"
+                  AWS_ACCESS_KEY_ID="${KUBECONFIG_AWS_ACCESS_KEY_ID}"
+                  AWS_SECRET_ACCESS_KEY="${KUBECONFIG_AWS_SECRET_ACCESS_KEY}"
+                  aws s3 cp s3://cloud-platform-pk-test-9-kubecfg/kubeconfig /tmp/kubeconfig
+                chmod 777 ./gitops-apply
+                ./gitops-apply
+        on_failure:
+          # put: slack-alert
+          # params:
+          #   <<: *SLACK_NOTIFICATION_DEFAULTS
+          #   attachments:
+          #     - color: "danger"
+          #       <<: *SLACK_ATTACHMENTS_DEFAULTS

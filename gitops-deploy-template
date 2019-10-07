@@ -1,0 +1,31 @@
+#!/bin/bash
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+log() {
+  _fg=''
+  [ "${1}" = "red" ] && _fg='\033[0;31m'
+  [ "${1}" = "blue" ] && _fg='\033[0;34m'
+  [ "${1}" = "green" ] && _fg='\033[0;32m'
+  shift
+  # shellcheck disable=SC2145
+  echo -e "${_fg}>>> ${@}\033[0m"
+}
+
+
+log green "applying kubectl in cluster ${PIPELINE_CLUSTER}"
+
+kubectl apply -f cp-deploy/kubectl-deploy/ --namespace=${NAMESPACE}
+
+
+# log green "applying helm in cluster ${PIPELINE_CLUSTER}"
+
+# helm install --name example cp-deploy/helm-deploy/ --namespace=live0-to-live1
+
+# helm install cp-deploy/helm-deploy/ \
+#       --tiller-namespace ${NAMESPACE} \
+#       --namespace ${NAMESPACE}
+
+
